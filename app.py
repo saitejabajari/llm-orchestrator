@@ -13,6 +13,7 @@ from sumy.parsers.plaintext import PlaintextParser
 from sumy.nlp.tokenizers import Tokenizer
 from sumy.summarizers.lsa import LsaSummarizer
 import nltk
+from Agents.bdd import BDDDecomposerAgent
 
 nltk.download('punkt')
 nltk.download('punkt_tab')
@@ -40,6 +41,9 @@ def load_summarization_pipeline():
     return HuggingFacePipeline(pipeline=summarization_pipeline)
 
 LLM = load_summarization_pipeline()
+
+# instantiate BDD agent
+BDD_AGENT = BDDDecomposerAgent()
 
 # ---------------------------
 # Utility Functions
@@ -102,7 +106,16 @@ def automated_data_analysis(df):
             st.write(df[column].value_counts())
 
 def LLM_agent(input_text):
-    if any(keyword in input_text.lower() for keyword in ['translate', 'translation']):
+    lowered = input_text.lower()
+    # Route BDD-like requests to the BDD agent
+    if any(k in lowered for k in ['bdd', 'behavior', 'behaviour', 'feature', 'scenario', 'given', 'when', 'then']):
+        try:
+            bdd_out = BDD_AGENT.decompose(input_text)
+            return f"**BDD Scenarios:**\n\n{bdd_out}"
+        except Exception as e:
+            return f"Error running BDD agent: {e}"
+
+    if any(keyword in lowered for keyword in ['translate', 'translation']):
         target_language = extract_target_language(input_text)
         if target_language:
             clean_text = input_text.lower().replace("translate", "").replace("to", "").replace(target_language, "")
