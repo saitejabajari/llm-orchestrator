@@ -3,5 +3,21 @@ name = "llm-agent-dynamic-large-language-model-llm-task-orchestrator"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = []
+requires-python = ">=3.12"
+dependencies = [
+    "fitz>=0.0.1.dev2",
+    "flask>=3.1.2",
+    "pymupdf==1.26.6",
+    "googletrans-py==4.0.0",
+    "langchain>=1.0.5",
+    "langchain-huggingface>=1.0.1",
+    "langchain-openai>=1.0.2",
+    "matplotlib>=3.10.7",
+    "numpy==1.26.4",
+    "ollama>=0.6.0",
+    "python-dotenv>=1.2.1",
+    "seaborn>=0.13.2",
+    "streamlit>=1.51.0",
+    "sumy>=0.11.0",
+    "transformers>=4.57.1",
+]

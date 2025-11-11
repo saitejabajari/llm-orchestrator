@@ -5,7 +5,7 @@ from transformers import GPT2Tokenizer, GPT2LMHeadModel
 import transformers
 from googletrans import Translator
 from transformers import pipeline, AutoTokenizer
-from langchain import HuggingFacePipeline
+from langchain_huggingface import HuggingFacePipeline
 from transformers import PegasusForConditionalGeneration, PegasusTokenizer
 import torch
 import pandas as pd

@@ -1,15 +1,69 @@
-from langchain_openai import AzureChatOpenAI
 import os
-from dotenv import load_dotenv, find_dotenv
-load_dotenv()
+import json
+import subprocess
+from types import SimpleNamespace
 
-LLM = AzureChatOpenAI(
+# Lightweight Ollama wrapper: attempts to use the Python client if installed,
+# and falls back to calling the `ollama` CLI. It exposes a simple
+# `invoke(prompt)` method which returns an object with a `content` attribute
+# to keep compatibility with existing code that does `LLM.invoke(...).content`.
 
-            azure_deployment=os.getenv("AZURE_DEPLOYMENT"),
-            openai_api_version=os.getenv("OPENAI_API_VERSION"),
-            api_key='''eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6IkpZaEFjVFBNWl9MWDZEQmxPV1E3SG4wTmVYRSIsImtpZCI6IkpZaEFjVFBNWl9MWDZEQmxPV1E3SG4wTmVYRSJ9.eyJhdWQiOiJodHRwczovL2NvZ25pdGl2ZXNlcnZpY2VzLmF6dXJlLmNvbSIsImlzcyI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzM4YWUzYmNkLTk1NzktNGZkNC1hZGRhLWI0MmUxNDk1ZDU1YS8iLCJpYXQiOjE3NTY5ODEyNTYsIm5iZiI6MTc1Njk4MTI1NiwiZXhwIjoxNzU2OTg1MTU2LCJhaW8iOiJrMlJnWUhDb2IvQmZkSGVkeXV1cEZydC9KcTE3Q3dBPSIsImFwcGlkIjoiMzdmNzEwZjAtY2Q2My00ZGY4LTk5NzEtNTY4ZjBhZDk3OGIzIiwiYXBwaWRhY3IiOiIxIiwiaWRwIjoiaHR0cHM6Ly9zdHMud2luZG93cy5uZXQvMzhhZTNiY2QtOTU3OS00ZmQ0LWFkZGEtYjQyZTE0OTVkNTVhLyIsImlkdHlwIjoiYXBwIiwib2lkIjoiZmFkN2YzODQtNTVlMC00M2VkLWEwZTktMjI5Y2VjODlkYjk1IiwicmgiOiIxLkFUd0F6VHV1T0htVjFFLXQyclF1RkpYVldwQWlNWDNJS0R4SG9PMk9VM1NiYlcwOEFBQThBQS4iLCJzdWIiOiJmYWQ3ZjM4NC01NWUwLTQzZWQtYTBlOS0yMjljZWM4OWRiOTUiLCJ0aWQiOiIzOGFlM2JjZC05NTc5LTRmZDQtYWRkYS1iNDJlMTQ5NWQ1NWEiLCJ1dGkiOiJmR19HajRSNnVVdUxDdWdrSllvQkFBIiwidmVyIjoiMS4wIiwieG1zX2Z0ZCI6IkJnN1B1azF2bjVVQUtxYnFXVUN6eGRWY0JsOVdFLWdQQ08wSUc5UXdpNElCWlhWeWIzQmxkMlZ6ZEMxa2MyMXoiLCJ4bXNfaWRyZWwiOiI3IDYiLCJ4bXNfcmQiOiIwLjQyTGxZQkppdEJFUzRXQVhFcGlfYzhzSnh4WWh0M1hPRTh3ZFBwektBNHB5Q2dud2I3UFAybU5VNk55cTUyeS1PODJLRXlqS0lTUXdRY213OW9TR2pmdUN0MzNCSmJOemN3RSJ9.gTdyVbNkD2v8bSHnYYQDgCpX0alhk0egYO2C64vd-66_-fVFAQifmq1nj9b-saWeMlrSKoWQ6V4qZ3ReLRZOStxIMUeP60GilTS2iUo6q9KrKE3Dl0FiS_YSRI6ASeH6WT0ZpJ7xD0cl3_4ZkJhc0L2damZxvwfrM4BVHMjZZJEhmIMVuhUhiHdIOMlcwZdyFr4D8wip720kBKPO0Vm1BR_V0jS_OXzRmuTbHfBE-nrBG7cwoVtKJSmvoiGxqASW6CRUqONqlOPwznhOzwtLFHHlO2phjnunDy8rGE3lf8YOCrMUBokGyAD07jnKK8UC3aBlwxC9pmVeJVJ1y7Vl6A''',
+try:
+    from ollama import Ollama
+    _OLLAMA_AVAILABLE = True
+    _OLLAMA_CLIENT = Ollama()
+except Exception:
+    _OLLAMA_AVAILABLE = False
+    _OLLAMA_CLIENT = None
 
-            azure_endpoint=os.getenv('AZURE_ENDPOINT'),
-        )
 
+class OllamaLLM:
+    def __init__(self, model: str | None = None):
+        # Default model can be overridden with the OLLAMA_MODEL env var.
+        # Pick a conservative default; user can set a model they have locally.
+        self.model = model or os.getenv("OLLAMA_MODEL", "mistral")
+
+    def invoke(self, prompt: str, **kwargs):
+        """Invoke the Ollama model and return an object with a `content` field.
+
+        This method first tries the Python `ollama` client (if installed).
+        If that fails it will call the `ollama` CLI via subprocess. Any
+        exceptions are returned inside the `.content` for easier debugging.
+        """
+        # Try Python client
+        if _OLLAMA_AVAILABLE and _OLLAMA_CLIENT is not None:
+            try:
+                # Many client versions provide `chat` or `generate` APIs; try both.
+                if hasattr(_OLLAMA_CLIENT, "chat"):
+                    # chat usually expects model + messages
+                    resp = _OLLAMA_CLIENT.chat(self.model, messages=[{"role": "user", "content": prompt}])
+                    # resp may be a dict-like or object
+                    if isinstance(resp, dict):
+                        content = resp.get("content") or resp.get("text") or json.dumps(resp)
+                    else:
+                        content = getattr(resp, "content", getattr(resp, "text", str(resp)))
+                    return SimpleNamespace(content=content)
+
+                if hasattr(_OLLAMA_CLIENT, "generate"):
+                    resp = _OLLAMA_CLIENT.generate(self.model, prompt)
+                    content = getattr(resp, "text", str(resp))
+                    return SimpleNamespace(content=content)
+            except Exception as _e:
+                # fall through to CLI fallback
+                pass
+
+        # Fallback: use `ollama run <model>` via subprocess; pass prompt on stdin
+        try:
+            cmd = ["ollama", "run", self.model, "--no-stream"]
+            proc = subprocess.run(cmd, input=prompt.encode(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+            output = proc.stdout.decode().strip()
+            return SimpleNamespace(content=output)
+        except Exception as e:
+            return SimpleNamespace(content=f"ERROR: Ollama invocation failed: {e}")
+
+
+# Export a ready-to-use LLM instance
+LLM = OllamaLLM()
+
+# Example (uncomment to test manually):
 # print(LLM.invoke("Hello").content)
